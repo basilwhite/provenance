@@ -1,0 +1,361 @@
+openapi: 3.0.3
+info:
+  title: Provenance API
+  description: >
+    Ledger-backed AI validator reputation system. All timestamps are
+    Unix milliseconds. All hashes/keys/signatures are 0x-prefixed
+    lowercase hex. Ed25519 public keys are 32 bytes (64 hex chars),
+    signatures are 64 bytes (128 hex chars), and hashes are 32 bytes
+    (64 hex chars).
+  version: "0.1.0"
+servers:
+  - url: http://localhost:3000
+
+components:
+  schemas:
+    LedgerEvent:
+      type: object
+      description: >
+        Canonical ledger record. This exact field set (in this order) is
+        what gets hashed into the tamper-evident chain — see
+        src/ledger/hash.ts computeLeafHash.
+      properties:
+        id: { type: integer }
+        type:
+          type: string
+          enum: [submission, audit, batch, key_rotation]
+        claim_hash: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+        evidence_uri: { type: string }
+        timestamp: { type: integer, format: int64 }
+        validator_pubkey: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+        signature: { type: string, pattern: "^0x[0-9a-fA-F]{128}$" }
+        audit_ref:
+          type: string
+          nullable: true
+          pattern: "^0x[0-9a-fA-F]{64}$"
+        audit_verdict: { type: boolean, nullable: true }
+        stake_locked: { type: integer }
+        stake_slashed: { type: integer }
+        batch_root:
+          type: string
+          nullable: true
+          pattern: "^0x[0-9a-fA-F]{64}$"
+        prev_root: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+        root: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+        old_pubkey:
+          type: string
+          nullable: true
+          pattern: "^0x[0-9a-fA-F]{64}$"
+        new_pubkey:
+          type: string
+          nullable: true
+          pattern: "^0x[0-9a-fA-F]{64}$"
+
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+
+  responses:
+    BadRequest:
+      description: Malformed or missing fields.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Unauthorized:
+      description: Signature does not verify.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Forbidden:
+      description: Action not permitted (e.g. self-audit, insufficient stake).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    NotFound:
+      description: Referenced claim/validator not found.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    Conflict:
+      description: Duplicate action (duplicate audit, duplicate key rotation).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    UnprocessableEntity:
+      description: Well-formed request that fails a business rule (e.g. evidence too short).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    TooManyRequests:
+      description: Rate limit exceeded (max 10 submissions per validator per 24h).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+
+paths:
+  /health:
+    get:
+      summary: Liveness check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /submit:
+    post:
+      summary: Submit a new claim (F3.1)
+      description: >
+        claim_hash = keccak256(claim_text + " " + evidence_uri + " " + timestamp).
+        signature must be Ed25519(claim_hash bytes || utf8(timestamp)) signed
+        by the private key matching validator_pubkey.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claim_text, evidence_uri, timestamp, validator_pubkey, signature]
+              properties:
+                claim_text: { type: string, minLength: 500, description: "Must be >= 500 characters." }
+                evidence_uri: { type: string }
+                timestamp: { type: integer, format: int64 }
+                validator_pubkey: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+                signature: { type: string, pattern: "^0x[0-9a-fA-F]{128}$" }
+      responses:
+        "201":
+          description: Claim recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event: { $ref: "#/components/schemas/LedgerEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /audit:
+    post:
+      summary: Audit an existing claim, confirming or overturning it (F3.2)
+      description: >
+        signature must be Ed25519(claim_hash bytes || utf8(timestamp)) signed
+        by the auditor's private key. Self-audits are rejected. A validator
+        may audit a given claim at most once. Once a claim has >= 2 audits,
+        the submitter's score is (re)computed (F3.3). Two independent
+        overturns within 7 days of the original submission slash 50% of the
+        submitter's locked stake (F5.1), recorded as stake_slashed on the
+        triggering audit event.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claim_hash, audit_verdict, timestamp, validator_pubkey, signature]
+              properties:
+                claim_hash: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+                audit_verdict: { type: boolean, description: "true = confirm, false = overturn" }
+                timestamp: { type: integer, format: int64 }
+                validator_pubkey: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+                signature: { type: string, pattern: "^0x[0-9a-fA-F]{128}$" }
+      responses:
+        "201":
+          description: Audit recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event: { $ref: "#/components/schemas/LedgerEvent" }
+                  slashed_amount: { type: integer }
+                  finalize:
+                    type: object
+                    properties:
+                      updated: { type: boolean }
+                      score: { type: number }
+                      n: { type: integer }
+                      confirmations: { type: integer }
+                      overturns: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /submit/batch:
+    post:
+      summary: Submit up to 50 claims from one validator as a single ledger event (F5.3)
+      description: >
+        Each claim is individually signed exactly like /submit. batch_root
+        is the Merkle root over each claim's claim_hash; batch_signature is
+        Ed25519(batch_root bytes || utf8(timestamp)) signed by
+        validator_pubkey. Counts as ONE submission toward the 24h rate
+        limit regardless of claim count.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [validator_pubkey, timestamp, batch_signature, claims]
+              properties:
+                validator_pubkey: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+                timestamp: { type: integer, format: int64 }
+                batch_signature: { type: string, pattern: "^0x[0-9a-fA-F]{128}$" }
+                claims:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: object
+                    required: [claim_text, evidence_uri, timestamp, signature]
+                    properties:
+                      claim_text: { type: string, minLength: 500 }
+                      evidence_uri: { type: string }
+                      timestamp: { type: integer, format: int64 }
+                      signature: { type: string, pattern: "^0x[0-9a-fA-F]{128}$" }
+      responses:
+        "201":
+          description: Batch recorded as a single ledger event.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event: { $ref: "#/components/schemas/LedgerEvent" }
+                  batch_root: { type: string }
+                  claim_hashes:
+                    type: array
+                    items: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /keys/rotate:
+    post:
+      summary: Rotate a validator's Ed25519 key, preserving reputation continuity (F1.2)
+      description: The OLD key signs the NEW key. Each old key may be rotated at most once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old_pubkey, new_pubkey, rotation_signature]
+              properties:
+                old_pubkey: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+                new_pubkey: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+                rotation_signature: { type: string, pattern: "^0x[0-9a-fA-F]{128}$" }
+      responses:
+        "201":
+          description: Rotation recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event: { $ref: "#/components/schemas/LedgerEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /verify/{claim_hash}:
+    get:
+      summary: Public verification of one claim plus its submitter's full track record (F6.1)
+      parameters:
+        - name: claim_hash
+          in: path
+          required: true
+          schema: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+      responses:
+        "200":
+          description: Verification bundle.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  validator_pubkey: { type: string }
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/LedgerEvent" }
+                  current_score: { type: number }
+                  merkle_proof:
+                    type: object
+                    properties:
+                      claim_hash: { type: string }
+                      path:
+                        type: array
+                        items: { type: string }
+                        description: >
+                          Flat sibling-hash proof from this claim's ledger
+                          leaf to root (see ledger/proof.ts). For a direct
+                          submission, verify against computeLedgerLeaf(event),
+                          not claim_hash directly.
+                      root: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /validators/{pubkey}/score:
+    get:
+      summary: Current Wilson score for a validator (F4.2)
+      parameters:
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+      responses:
+        "200":
+          description: Score record. Resolved across the validator's full key-rotation lineage.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  validator_pubkey: { type: string }
+                  n: { type: integer }
+                  confirmations: { type: integer }
+                  overturns: { type: integer }
+                  score: { type: number }
+                  updated_at: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /validators/{pubkey}/events:
+    get:
+      summary: Raw event history for a validator, for the offline verifier CLI (F6.2)
+      description: >
+        Not one of the spec's originally named endpoints — added because
+        the F6.2 CLI is specified to take only --pubkey (no claim_hash).
+      parameters:
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string, pattern: "^0x[0-9a-fA-F]{64}$" }
+      responses:
+        "200":
+          description: Event history mirror, suitable for offline verification.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  validator_pubkey: { type: string }
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/LedgerEvent" }
+                  reported_score: { type: number }
+        "400": { $ref: "#/components/responses/BadRequest" }
