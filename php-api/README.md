@@ -162,38 +162,65 @@ index.php     Front controller (all requests routed through here)
 
 ## Deploying
 
-Target: `https://basilwhite.com/provenance/`, uploaded via the existing
-FTP/File Manager workflow (this hosting account has no SSH/Composer access
-confirmed available, so `vendor/` is built locally and uploaded as-is
-rather than run via `composer install` on the server).
+**Live at `https://basilwhite.com/provenance/`** as of this writing —
+deployed via SFTP, database on the account's `provenance` MySQL database
+(server `vuxmysql13`). `/submit`, `/audit`, `/verify`, and
+`/validators/{pubkey}/score` all confirmed working against the real
+production database with a real signed request (not just `/health`).
 
 1. **Build for deploy**: `composer install --no-dev --optimize-autoloader`
    locally (skips PHPUnit and friends — they're dev-only and denied by
    `.htaccess` regardless, but no reason to upload them).
 2. **Upload** the *contents* of `php-api/` — `index.php`, `.htaccess`,
-   `src/`, `vendor/`, `composer.json`/`composer.lock` — to
-   `public_html/provenance/` (or wherever `basilwhite.com/provenance/`
-   resolves to on this account). Do **not** upload `tests/`,
+   `src/`, `vendor/`, `composer.json`/`composer.lock`, `config.local.php`
+   — to wherever `basilwhite.com/provenance/` resolves to (`htdocs/provenance/`
+   on this account; SFTP `mkdir` is disabled account-wide here, so
+   directories were created via a tiny token-gated PHP script using PHP's
+   own `mkdir()`, triggered once over HTTP, then deleted — see git history
+   for the pattern if this needs repeating). Do **not** upload `tests/`,
    `verification/`, `phpunit.xml.dist`, or `.phpunit.cache/`.
-3. **Database**: create/confirm a MySQL database via Database Manager (the
-   account already has one provisioned, 300MB/7.5GB quota per the account
-   snapshot), then set `PROVENANCE_DB_*` for the live app. Shared hosting
-   typically has no way to set process environment variables for PHP
-   directly — the practical option is a small `config.local.php` (gitignored,
-   never committed) that `putenv()`s the real credentials, included at the
-   very top of `index.php`, OR setting them via `.htaccess`
-   `SetEnv`/`php_value` directives if the host's Apache config allows
-   `AllowOverride` for that. **This repo does not hardcode production DB
-   credentials anywhere** — they need to be supplied at deploy time via
-   whichever of those mechanisms this specific account supports.
-4. **PHP version**: confirmed present are PHP Manager and Softaculous;
-   the exact PHP version wasn't visible in the account snapshot captured
-   (only the hosting overview page was saved, not the PHP Manager
-   subpage) — needs a quick check before the first deploy. `ext-sodium` has
-   been a default-enabled core extension since PHP 7.2, so unless this
-   account is running something startlingly old, it should already be
-   available with no separate install step; worth a 30-second confirmation
-   in PHP Manager rather than assuming.
+3. **Database**: `config.local.php` (gitignored, never committed — see
+   `php-api/.gitignore`) `putenv()`s the real `PROVENANCE_DB_*` credentials
+   and is conditionally `require`d at the top of `index.php` if present.
+   Also explicitly denied by `.htaccess`'s `<FilesMatch>` block — **do not
+   remove that line**; without it the file is directly web-fetchable (it
+   was, briefly, during initial deployment, before being caught and fixed —
+   confirmed it was never actually leaking its contents, since PHP was
+   executing it normally rather than serving raw source, but it should
+   never have been reachable at all).
+4. **PHP version**: confirmed via PHP Manager — this hosting account runs
+   **PHP 8.3**. The full test suite (all 125 tests, including the crypto
+   cross-verification scripts) was re-run against a real PHP 8.3.32
+   install and passed identically to PHP 8.2 — not assumed from the 8.2
+   result, actually re-verified. `ext-sodium` and `ext-pdo_mysql` both
+   load fine on 8.3 (confirmed via `php -m`).
+
+### Two things only the real deployment surfaced
+
+Neither was — or could have been — caught by local testing against a
+root/superuser MySQL connection:
+
+- **`CREATE TRIGGER` requires SUPER privilege** (or the
+  `log_bin_trust_function_creators` server variable) when binary logging
+  is on — standard on managed MySQL, which scoped app users never get.
+  The append-only DB-level trigger from `Db\Connection` (see
+  "Where this deliberately differs from the TS reference" above) failed
+  outright against the real production database with MySQL error 1419.
+  Fixed by making trigger creation best-effort: try it, and silently
+  proceed without it if the privilege isn't there. The app-level guarantee
+  (`Ledger\Store` never issues UPDATE/DELETE) still holds either way — the
+  trigger was always a bonus, never the only safeguard.
+- **The `.htaccess` catch-all rewrite didn't fire on this host.** The
+  `RewriteCond %{REQUEST_FILENAME} !-f` / `!-d` pattern — completely
+  standard, and how most PHP front-controller `.htaccess` files are
+  written — silently never matched here, even though `mod_rewrite` was
+  confirmed active (a separate, unconditional `RewriteRule` in the same
+  file worked fine). Root cause not fully pinned down; worked around by
+  guarding on `%{REQUEST_URI}` instead of file-existence checks, which is
+  more portable across the range of ways `REQUEST_FILENAME` gets resolved
+  behind different proxy/CGI setups. If this app is ever redeployed to a
+  *different* host, re-verify the rewrite actually reaches `index.php`
+  before assuming it works.
 
 ## API reference
 

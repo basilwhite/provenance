@@ -34,7 +34,8 @@ peers — one is the spec, one is the production deployment:
   the Wilson formula, the Merkle chain scheme, the anti-collusion rules —
   was worked out here first, against 124 Vitest tests. It's what "correct"
   means for this project.
-- **`php-api/` (PHP + MySQL)** is the **production deployment**, built to
+- **`php-api/` (PHP + MySQL)** is the **production deployment** — **live at
+  [basilwhite.com/provenance](https://basilwhite.com/provenance/)** — built to
   run on [basilwhite.com](https://basilwhite.com)'s actual hosting
   (Network Solutions shared hosting: PHP/MySQL only, no Node.js runtime
   available on the account). It's a from-scratch **port**, not a

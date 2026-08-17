@@ -4,6 +4,15 @@ declare(strict_types=1);
 
 require __DIR__ . '/vendor/autoload.php';
 
+// Production DB credentials live only here, never in git (see .gitignore).
+// Uploaded directly to the server via SFTP, alongside index.php. Locally,
+// this file simply doesn't exist, so PROVENANCE_DB_* fall back to
+// Db\Connection's defaults (or whatever the shell/test bootstrap set).
+$localConfig = __DIR__ . '/config.local.php';
+if (is_file($localConfig)) {
+    require $localConfig;
+}
+
 use Provenance\Api\ApiException;
 use Provenance\Api\Router;
 use Provenance\Db\Connection;

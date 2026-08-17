@@ -8,9 +8,11 @@ namespace Provenance\Db;
  * MySQL schema mirroring src/db/index.ts's SQLite schema. InnoDB (for
  * transactions/foreign keys), utf8mb4. ledger_events has no application
  * code path that ever issues UPDATE/DELETE against it — see
- * Ledger\Store, which only ever INSERTs — enforced further here with a
- * trigger that rejects any UPDATE/DELETE attempt outright, as a
- * belt-and-suspenders guarantee beyond what the TS reference has.
+ * Ledger\Store, which only ever INSERTs — the same guarantee the TS
+ * reference relies on. Where privileges allow, this is additionally
+ * enforced with a DB-level trigger that rejects any UPDATE/DELETE
+ * outright; where they don't (see createAppendOnlyTriggers below), the
+ * app-level guarantee alone is what's in force, same as the TS reference.
  *
  * uniq_audit_ref_validator also exists for a reason the TS reference
  * doesn't need: PHP under Apache/PHP-FPM handles each HTTP request in a
@@ -138,24 +140,42 @@ final class Connection
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         SQL);
 
-        // Defense-in-depth: the append-only guarantee already holds because
-        // no application code path ever runs UPDATE/DELETE against this
-        // table, but a DB-level trigger makes that structurally enforced
-        // rather than merely convention.
-        $pdo->exec('DROP TRIGGER IF EXISTS ledger_events_no_update');
-        $pdo->exec(<<<SQL
-            CREATE TRIGGER ledger_events_no_update
-            BEFORE UPDATE ON ledger_events
-            FOR EACH ROW
-            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ledger_events is append-only: UPDATE is not permitted'
-        SQL);
+        self::createAppendOnlyTriggers($pdo);
+    }
 
-        $pdo->exec('DROP TRIGGER IF EXISTS ledger_events_no_delete');
-        $pdo->exec(<<<SQL
-            CREATE TRIGGER ledger_events_no_delete
-            BEFORE DELETE ON ledger_events
-            FOR EACH ROW
-            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ledger_events is append-only: DELETE is not permitted'
-        SQL);
+    /**
+     * Best-effort defense-in-depth: CREATE TRIGGER requires either SUPER
+     * privilege or the log_bin_trust_function_creators server variable
+     * when binary logging is on (MySQL error 1419) — standard on managed/
+     * shared hosting DB users, which never get SUPER. Confirmed the hard
+     * way against the real production database (vuxmysql13): trigger
+     * creation failed there with exactly that error. Rather than making
+     * the whole app unusable on hosts that can't grant this, this degrades
+     * gracefully — try to create the triggers, and if the privilege isn't
+     * there, fall back to the app-level-only guarantee (which is already
+     * sufficient; it's what the TS reference relies on entirely).
+     */
+    private static function createAppendOnlyTriggers(\PDO $pdo): void
+    {
+        try {
+            $pdo->exec('DROP TRIGGER IF EXISTS ledger_events_no_update');
+            $pdo->exec(<<<SQL
+                CREATE TRIGGER ledger_events_no_update
+                BEFORE UPDATE ON ledger_events
+                FOR EACH ROW
+                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ledger_events is append-only: UPDATE is not permitted'
+            SQL);
+
+            $pdo->exec('DROP TRIGGER IF EXISTS ledger_events_no_delete');
+            $pdo->exec(<<<SQL
+                CREATE TRIGGER ledger_events_no_delete
+                BEFORE DELETE ON ledger_events
+                FOR EACH ROW
+                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ledger_events is append-only: DELETE is not permitted'
+            SQL);
+        } catch (\PDOException) {
+            // Insufficient privilege to create triggers on this server —
+            // proceed without the extra DB-level guard.
+        }
     }
 }

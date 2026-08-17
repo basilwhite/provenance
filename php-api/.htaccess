@@ -9,21 +9,25 @@ Options -Indexes
 
 # Block direct access to everything that isn't the front controller.
 # index.php is the ONLY PHP file meant to be requested directly; everything
-# else (src/, vendor/, tests/, composer.*, verify-*.php, phpunit.xml*) is
-# either routed through it or is dev/deploy tooling that has no business
+# else (src/, vendor/, tests/, composer.*, verify-*.php, phpunit.xml*,
+# config.local.php with real DB credentials) is either routed through it,
+# dev/deploy tooling, or a secrets file — none of it has any business
 # being web-reachable at all.
-<FilesMatch "^(composer\.(json|lock)|phpunit\.xml.*|\.env.*)$">
+<FilesMatch "^(composer\.(json|lock)|phpunit\.xml.*|\.env.*|config\.local\.php)$">
     Require all denied
 </FilesMatch>
 
 RewriteEngine On
+RewriteBase /provenance/
 
 # Deny direct access to app code / dev-only directories outright.
 RewriteRule ^(src|vendor|tests|verification)/ - [F,L]
 
-# Everything else, if it isn't an existing real file/directory, goes
-# through the front controller. index.php itself parses the remaining
-# path and dispatches (see Api\Router).
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
+# Everything else that isn't literally a request for index.php itself goes
+# through the front controller, which parses the remaining path and
+# dispatches (see Api\Router). Guards on REQUEST_URI rather than
+# %{REQUEST_FILENAME} existence checks, which proved unreliable on this
+# host's Apache config (mod_rewrite is active — the rule above works — but
+# the file-exists-based catch-all silently never matched).
+RewriteCond %{REQUEST_URI} !^/provenance/index\.php$
 RewriteRule ^ index.php [L]
