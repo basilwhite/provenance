@@ -9,6 +9,7 @@ import { createVerifyRouter } from "./routes/verify.js";
 import { createScoreRouter } from "./routes/score.js";
 import { createKeysRouter } from "./routes/keys.js";
 import { ApiError } from "./errors.js";
+import { LANDING_PAGE_HTML } from "./landing-page.js";
 
 export function createApp(db: Db): express.Express {
   const app = express();
@@ -16,6 +17,13 @@ export function createApp(db: Db): express.Express {
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Exact match on the root only — everything else still falls through to
+  // the JSON 404 below. Mirrors php-api/src/Api/Router.php's root special
+  // case, for local-dev parity with the production landing page.
+  app.get("/", (_req, res) => {
+    res.type("html").send(LANDING_PAGE_HTML);
   });
 
   app.use(createSubmitRouter(db));
