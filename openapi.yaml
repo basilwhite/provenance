@@ -115,9 +115,10 @@ paths:
     post:
       summary: Submit a new claim (F3.1)
       description: >
-        claim_hash = keccak256(claim_text + " " + evidence_uri + " " + timestamp).
-        signature must be Ed25519(claim_hash bytes || utf8(timestamp)) signed
-        by the private key matching validator_pubkey.
+        claim_hash = keccak256(claim_text + NUL + evidence_uri + NUL + timestamp),
+        where NUL is a literal 0x00 byte (not a space or other printable
+        separator). signature must be Ed25519(claim_hash bytes ||
+        utf8(timestamp)) signed by the private key matching validator_pubkey.
       requestBody:
         required: true
         content:

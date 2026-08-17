@@ -1,0 +1,29 @@
+# Provenance PHP API — front controller + hardening for shared hosting
+# where a custom document root per subdirectory isn't available, so this
+# whole folder (uploaded as basilwhite.com/provenance/) is web-reachable
+# and app code sits alongside index.php rather than in a separate
+# doc-root-only public/ folder.
+
+# Never list directory contents (composer package names, source layout).
+Options -Indexes
+
+# Block direct access to everything that isn't the front controller.
+# index.php is the ONLY PHP file meant to be requested directly; everything
+# else (src/, vendor/, tests/, composer.*, verify-*.php, phpunit.xml*) is
+# either routed through it or is dev/deploy tooling that has no business
+# being web-reachable at all.
+<FilesMatch "^(composer\.(json|lock)|phpunit\.xml.*|\.env.*)$">
+    Require all denied
+</FilesMatch>
+
+RewriteEngine On
+
+# Deny direct access to app code / dev-only directories outright.
+RewriteRule ^(src|vendor|tests|verification)/ - [F,L]
+
+# Everything else, if it isn't an existing real file/directory, goes
+# through the front controller. index.php itself parses the remaining
+# path and dispatches (see Api\Router).
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]

@@ -14,6 +14,7 @@ whole point.
 
 ## Contents
 
+- [PHP vs. TypeScript: which one runs where](#php-vs-typescript-which-one-runs-where)
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
 - [Trust justification](#trust-justification)
@@ -22,6 +23,38 @@ whole point.
 - [Offline verifier CLI](#offline-verifier-cli-f62)
 - [Testing](#testing)
 - [Known limitations](#known-limitations)
+
+## PHP vs. TypeScript: which one runs where
+
+There are two implementations of Provenance in this repo, and they're not
+peers — one is the spec, one is the production deployment:
+
+- **`src/`, `cli/`, `test/` (TypeScript)** is the **reference implementation
+  and local dev/test environment**. Every design decision in this project —
+  the Wilson formula, the Merkle chain scheme, the anti-collusion rules —
+  was worked out here first, against 124 Vitest tests. It's what "correct"
+  means for this project.
+- **`php-api/` (PHP + MySQL)** is the **production deployment**, built to
+  run on [basilwhite.com](https://basilwhite.com)'s actual hosting
+  (Network Solutions shared hosting: PHP/MySQL only, no Node.js runtime
+  available on the account). It's a from-scratch **port**, not a
+  transpilation — every cryptographic primitive (Ed25519 via `ext-sodium`,
+  keccak256 via `kornrunner/keccak`) was independently cross-verified
+  byte-for-byte against the TS reference before being trusted, and that
+  process caught a real bug in the TS reference itself along the way (see
+  [`php-api/README.md`](php-api/README.md#verification) for the full
+  account — short version: `src/domain/claimHash.ts`'s delimiter is
+  actually a NUL byte, not the space its own comment claims, and the PHP
+  port matches that real behavior rather than the misleading comment).
+  125 PHPUnit tests, 93.47% line coverage, covering the same ground as the
+  TS suite plus real concurrent-request tests that the TS server's
+  single-threaded execution model doesn't need but PHP's
+  request-per-process model does.
+
+If you're changing how Provenance *works* — the scoring formula, the
+slashing rules, anything spec-level — change it in `src/` first, since
+that's the thing 249 combined tests are protecting. If you're deploying or
+debugging the live site, you're in `php-api/`.
 
 ## Quick start
 
