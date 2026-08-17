@@ -25,6 +25,34 @@ final class Router
     {
         $path = '/' . trim($path, '/');
 
+        // A bare GET / (what anyone visiting the URL in a browser actually
+        // hits) used to fall through to the generic 404 below, which reads
+        // as "this is broken" rather than "you're at the root of a working
+        // API." A small self-describing payload here is a common REST
+        // convention and a much better first impression.
+        if ($method === 'GET' && $path === '/') {
+            return [
+                'status' => 200,
+                'body' => [
+                    'name' => 'Provenance API',
+                    'status' => 'ok',
+                    'description' => 'Ledger-backed AI validator reputation system.',
+                    'docs' => 'https://github.com/basilwhite/provenance/blob/main/openapi.yaml',
+                    'source' => 'https://github.com/basilwhite/provenance',
+                    'endpoints' => [
+                        'GET /health',
+                        'POST /submit',
+                        'POST /audit',
+                        'POST /submit/batch',
+                        'POST /keys/rotate',
+                        'GET /verify/{claim_hash}',
+                        'GET /validators/{pubkey}/score',
+                        'GET /validators/{pubkey}/events',
+                    ],
+                ],
+            ];
+        }
+
         if ($method === 'GET' && $path === '/health') {
             return ['status' => 200, 'body' => ['status' => 'ok']];
         }

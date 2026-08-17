@@ -8,6 +8,16 @@ use Provenance\Tests\Support\DbTestCase;
 
 final class RouterTest extends DbTestCase
 {
+    public function testRootReturnsFriendlySelfDescribingPayload(): void
+    {
+        $res = $this->dispatch('GET', '/');
+        $this->assertSame(200, $res['status']);
+        $this->assertSame('Provenance API', $res['body']['name']);
+        $this->assertSame('ok', $res['body']['status']);
+        $this->assertIsArray($res['body']['endpoints']);
+        $this->assertContains('GET /health', $res['body']['endpoints']);
+    }
+
     public function testHealthCheck(): void
     {
         $res = $this->dispatch('GET', '/health');
