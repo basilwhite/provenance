@@ -20,7 +20,7 @@ use Provenance\Api\Routes\VerifyRoute;
  */
 final class Router
 {
-    /** @return array{status: int, body: array} */
+    /** @return array{status: int, body: array, html?: string} */
     public static function dispatch(\PDO $db, string $method, string $path, array $body): array
     {
         $path = '/' . trim($path, '/');
@@ -28,29 +28,11 @@ final class Router
         // A bare GET / (what anyone visiting the URL in a browser actually
         // hits) used to fall through to the generic 404 below, which reads
         // as "this is broken" rather than "you're at the root of a working
-        // API." A small self-describing payload here is a common REST
-        // convention and a much better first impression.
+        // API." Serve the generated documentation page instead. This is an
+        // exact match on the root only — every other unmatched path still
+        // falls through to the JSON 404 below.
         if ($method === 'GET' && $path === '/') {
-            return [
-                'status' => 200,
-                'body' => [
-                    'name' => 'Provenance API',
-                    'status' => 'ok',
-                    'description' => 'Ledger-backed AI validator reputation system.',
-                    'docs' => 'https://github.com/basilwhite/provenance/blob/main/openapi.yaml',
-                    'source' => 'https://github.com/basilwhite/provenance',
-                    'endpoints' => [
-                        'GET /health',
-                        'POST /submit',
-                        'POST /audit',
-                        'POST /submit/batch',
-                        'POST /keys/rotate',
-                        'GET /verify/{claim_hash}',
-                        'GET /validators/{pubkey}/score',
-                        'GET /validators/{pubkey}/events',
-                    ],
-                ],
-            ];
+            return ['status' => 200, 'body' => [], 'html' => LandingPage::HTML];
         }
 
         if ($method === 'GET' && $path === '/health') {

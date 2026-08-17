@@ -22,12 +22,19 @@ use Provenance\Db\Connection;
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
-header('Content-Type: application/json; charset=utf-8');
-
 function provenance_send(int $status, array $body): never
 {
+    header('Content-Type: application/json; charset=utf-8');
     http_response_code($status);
     echo json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function provenance_send_html(int $status, string $html): never
+{
+    header('Content-Type: text/html; charset=utf-8');
+    http_response_code($status);
+    echo $html;
     exit;
 }
 
@@ -61,6 +68,9 @@ if ($method === 'POST') {
 try {
     $db = Connection::getDefault();
     $result = Router::dispatch($db, $method, $path, $body);
+    if (isset($result['html'])) {
+        provenance_send_html($result['status'], $result['html']);
+    }
     provenance_send($result['status'], $result['body']);
 } catch (ApiException $e) {
     provenance_send($e->status, ['error' => ['code' => $e->errorCode, 'message' => $e->getMessage()]]);
