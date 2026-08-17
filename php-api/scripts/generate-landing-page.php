@@ -336,11 +336,15 @@ $html = <<<HTML
 <section>
   <h2>Trust justification</h2>
   <p>Immutability (append-only, Merkle-chained, no update/delete path), accountability
-  (a public key is a validator's lifelong identity), economic disincentives (staking and
-  slashing make bad claims costly), and transparency (offline verification, no trust
-  required) &mdash; see the
+  (a public key is a validator's lifelong identity), and transparency (offline
+  verification, no trust required) &mdash; see the
   <a href="https://github.com/basilwhite/provenance#trust-justification">full trust justification</a>
   for the complete argument with worked examples.</p>
+  <p><b>Known gap, stated plainly:</b> a stake-and-slash mechanism exists on every claim,
+  but current stake is a free, auto-provisioned simulation with no real cost to acquire
+  or replace &mdash; it does not yet deter a validator from re-keying after a slash. See
+  <a href="https://github.com/basilwhite/provenance/blob/main/docs/CURRENT_STATE.md">docs/CURRENT_STATE.md</a>
+  for the full accounting of what's solved and what isn't.</p>
 </section>
 
 <footer>
