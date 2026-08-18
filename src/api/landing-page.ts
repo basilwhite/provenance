@@ -69,19 +69,22 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
 <header>
   <h1>Provenance</h1>
   <p class="tagline">A ledger-backed AI validator reputation system.</p>
-  <p class="pitch"><b>Don't Trust, Verify.</b> Every claim, audit, and stake slash is a signed,
-  append-only ledger event chained by Merkle roots. Nothing here asks you to trust a
-  dashboard — pull the raw events and recompute the score yourself.</p>
+  <p class="pitch"><b>Don't Trust, Verify &mdash; for what's covered today.</b> Every claim,
+  audit, and stake slash is a signed, append-only ledger event chained by Merkle roots.
+  The offline CLI recomputes scores from those raw signed events instead of taking a
+  dashboard's word for it &mdash; that proves the numbers are internally consistent and
+  every signature is genuine, not that nothing was ever omitted. See the trust
+  justification below for the exact boundary.</p>
 </header>
 
 <section>
   <h2>How it works</h2>
   <div class="flow">
     <div class="flow-step"><b>1. Submit</b>A validator signs and submits a claim about AI system behavior.</div>
-    <div class="flow-step"><b>2. Audit</b>Other validators confirm or overturn it &mdash; self-audits are rejected.</div>
+    <div class="flow-step"><b>2. Audit</b>Other validators confirm or overturn it &mdash; same-key self-audits are rejected (a second keypair is not stopped).</div>
     <div class="flow-step"><b>3. Finalize</b>Once a claim has &ge;2 audits, the submitter's score recomputes.</div>
     <div class="flow-step"><b>4. Score</b>A Wilson-lower-bound estimate over all finalized claims &mdash; not a raw ratio.</div>
-    <div class="flow-step"><b>5. Verify</b>Anyone recomputes the score offline from raw signed events. No trust required.</div>
+    <div class="flow-step"><b>5. Verify</b>Anyone recomputes the score offline from raw signed events &mdash; proving consistency, not that history wasn't rewritten.</div>
   </div>
 </section>
 
@@ -118,8 +121,8 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
     &quot;claim_text&quot;: &quot;On 2026-03-01, model checkpoint gpt-audit-7b was evaluated against the held-out SWE-bench-lite split (300 tasks) using the standard agentic scaffold with a 50-step budget. The run resolved 217/300 tasks (72.3% pass@1), matching the previously reported internal benchmark within 0.4 percentage points. Full transcripts, the evaluation harness commit hash (a1b2c3d), and the raw per-task pass/fail matrix are attached at the evidence URI. No tasks were excluded or retried beyond the harness&#039;s standard single-attempt protocol. Hardware: 8x A100 80GB, wall-clock 41 minutes. This claim asserts the reported pass rate is accurate and reproducible from the attached artifacts.&quot;,
     &quot;evidence_uri&quot;: &quot;https://evidence.example.org/runs/gpt-audit-7b-swebench-lite-2026-03-01.json&quot;,
     &quot;timestamp&quot;: 1772000000000,
-    &quot;validator_pubkey&quot;: &quot;0xb581b6a7f367b2379228ef688f91e3a88a63064cf1a93242d3996973e1f36312&quot;,
-    &quot;signature&quot;: &quot;0x5effbf366b5a54768de1fcacfca6f49facc247a96744500c87255b6fdc54878f69778e7ccab72708848e5e0b283c1360cf54b5f8a55d233d378515b752048f02&quot;
+    &quot;validator_pubkey&quot;: &quot;0x36a507a53fa25b7d1e9783a4fae214ef7b8c424e397edb6c2cf6173a67677332&quot;,
+    &quot;signature&quot;: &quot;0x8b45d89eb8f96fdd73a03de8db9aef82020201c1edebae9e7d81bb5bf1b3ac40bb2ca6760f9ca73c597bce33c127467adc05c18d102b7f6d14211654dc248b05&quot;
 }&#039;</code></pre>
 <h3 id="ep-POST-audit"><span class="method method-post">POST</span> <code>/audit</code></h3>
 <p>Audit an existing claim, confirming or overturning it (F3.2)</p>
@@ -129,29 +132,29 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
     &quot;claim_hash&quot;: &quot;0xd3c4cede626e025ec901d22491b42e654ebe4d698023ff973fa267de9d32aa72&quot;,
     &quot;audit_verdict&quot;: true,
     &quot;timestamp&quot;: 1772000060000,
-    &quot;validator_pubkey&quot;: &quot;0xb3e3583ce146641f20cb40bafb0226ef381403687c650f2e7dab385dee11e0fc&quot;,
-    &quot;signature&quot;: &quot;0x39710b61126663c5fc0bc26354d8f5adf1c9396e9c04a768354a5331331fc11b999bf5d0fb0d5e8928fd92d94f2e47fa9b02766b97c056b927612d41f2821908&quot;
+    &quot;validator_pubkey&quot;: &quot;0x66b70f46aeae823c4ed1a806ac92900408394a3c2c0a0456f8e5e91c8ce127ce&quot;,
+    &quot;signature&quot;: &quot;0x6e596f3b5ad95f10a0c0ccc77950b0d597783c847e716eeddb1ba9d5261b5e21366f2fd8252c5e9f93e27cb0aaeb5c4520960761788b0b9e4ce7cef18848780a&quot;
 }&#039;</code></pre>
 <h3 id="ep-POST-submit-batch"><span class="method method-post">POST</span> <code>/submit/batch</code></h3>
 <p>Submit up to 50 claims from one validator as a single ledger event (F5.3)</p>
 <pre><code>curl -s -X POST https://basilwhite.com/provenance/submit/batch \\
   -H &quot;Content-Type: application/json&quot; \\
   -d &#039;{
-    &quot;validator_pubkey&quot;: &quot;0xb581b6a7f367b2379228ef688f91e3a88a63064cf1a93242d3996973e1f36312&quot;,
+    &quot;validator_pubkey&quot;: &quot;0x36a507a53fa25b7d1e9783a4fae214ef7b8c424e397edb6c2cf6173a67677332&quot;,
     &quot;timestamp&quot;: 1772000200000,
-    &quot;batch_signature&quot;: &quot;0x0cd9707f608c8aa91c230616ec6323d941982da139bed380d258cefb99cf669ab5ced73eac3c5853f6fb03d3938c90d322a259eee4e3efa143bb26355d97ad0f&quot;,
+    &quot;batch_signature&quot;: &quot;0xbfcf31440b746f435ee42e5a96958d1ac75d025cc9072da4cddd598fb6fcc3d39ad83304f259f30706fa36dccd752fd4a50a71d46370f2356a1cb76ffaa1fc0d&quot;,
     &quot;claims&quot;: [
         {
             &quot;claim_text&quot;: &quot;On 2026-03-01, model checkpoint gpt-audit-7b was evaluated against the held-out SWE-bench-lite split (300 tasks) using the standard agentic scaffold with a 50-step budget. The run resolved 217/300 tasks (72.3% pass@1), matching the previously reported internal benchmark within 0.4 percentage points. Full transcripts, the evaluation harness commit hash (a1b2c3d), and the raw per-task pass/fail matrix are attached at the evidence URI. No tasks were excluded or retried beyond the harness&#039;s standard single-attempt protocol. Hardware: 8x A100 80GB, wall-clock 41 minutes. This claim asserts the reported pass rate is accurate and reproducible from the attached artifacts. (batch item 0)&quot;,
             &quot;evidence_uri&quot;: &quot;https://evidence.example.org/runs/batch-0.json&quot;,
             &quot;timestamp&quot;: 1772000200000,
-            &quot;signature&quot;: &quot;0x74d590e68fb93f4f037e871edf09de36357c7c308715513d53ede6736b2f0d7d09915bd11bba70b76fc80d09827a2e4b8eede3ec55e1f7f5eba761442f8c1604&quot;
+            &quot;signature&quot;: &quot;0x2e1432dfa9485641fa3e8e06d6dd1d7a0c5431b55a9d379f6560b85eb6517396ebf6768f2d469d4e2eee34399071d499e8e710b230c5c29b25813a665c79d307&quot;
         },
         {
             &quot;claim_text&quot;: &quot;On 2026-03-01, model checkpoint gpt-audit-7b was evaluated against the held-out SWE-bench-lite split (300 tasks) using the standard agentic scaffold with a 50-step budget. The run resolved 217/300 tasks (72.3% pass@1), matching the previously reported internal benchmark within 0.4 percentage points. Full transcripts, the evaluation harness commit hash (a1b2c3d), and the raw per-task pass/fail matrix are attached at the evidence URI. No tasks were excluded or retried beyond the harness&#039;s standard single-attempt protocol. Hardware: 8x A100 80GB, wall-clock 41 minutes. This claim asserts the reported pass rate is accurate and reproducible from the attached artifacts. (batch item 1)&quot;,
             &quot;evidence_uri&quot;: &quot;https://evidence.example.org/runs/batch-1.json&quot;,
             &quot;timestamp&quot;: 1772000200001,
-            &quot;signature&quot;: &quot;0x35813966541fb3661d10208aa8866aeec86386b7cd16f600a8eb313b2e0b3911bb36fd7a11b1d78f569dbd27d17da2a8213fddf1caeb0429ccd12cfa11d3410b&quot;
+            &quot;signature&quot;: &quot;0xe65f50ec50abb0cf5138813a1dca996774e942f93d43df66b18f9000efc8cd89efacfbf5b0542a1cc388b18a218844479ba5c8ec94400905d8de0191ec136001&quot;
         }
     ]
 }&#039;</code></pre>
@@ -160,19 +163,19 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
 <pre><code>curl -s -X POST https://basilwhite.com/provenance/keys/rotate \\
   -H &quot;Content-Type: application/json&quot; \\
   -d &#039;{
-    &quot;old_pubkey&quot;: &quot;0x1e333c0cb0920a63869fd7934951e8849d6ae79b852c77f346f801b0c77970ec&quot;,
-    &quot;new_pubkey&quot;: &quot;0x1858e0feb31cf51bcaaf326beb1f457b6ba04e26ba123550608f63ee9c86497f&quot;,
-    &quot;rotation_signature&quot;: &quot;0x1e5f7905e2b4770bdcc18955c8fd202c83cafec53ff6505727f4d059149d488de859f8bfb3c1c0e6f7975debe7569a371033198752eca2128eae094df9ef090b&quot;
+    &quot;old_pubkey&quot;: &quot;0x944158732dfdea6edcec509a3f51182f50f4f532142d8ee7bdc7f2fac669b9b2&quot;,
+    &quot;new_pubkey&quot;: &quot;0x1898542dd54af31a95976c5880b7006d86f9c5050aeeca902f3c8c5f772be163&quot;,
+    &quot;rotation_signature&quot;: &quot;0x8aa77d604aa130f119d558411eee730267f83ec5d4e204892e15fa3f7f6d2904dc69e869316f4a9e5e7859e0ec724163b02000bf940991f1b194743eb2957a07&quot;
 }&#039;</code></pre>
 <h3 id="ep-GET-verify-claim-hash-"><span class="method method-get">GET</span> <code>/verify/{claim_hash}</code></h3>
 <p>Public verification of one claim plus its submitter&#039;s full track record (F6.1)</p>
 <pre><code>curl -s https://basilwhite.com/provenance/verify/0xd3c4cede626e025ec901d22491b42e654ebe4d698023ff973fa267de9d32aa72</code></pre>
 <h3 id="ep-GET-validators-pubkey-score"><span class="method method-get">GET</span> <code>/validators/{pubkey}/score</code></h3>
 <p>Current Wilson score for a validator (F4.2)</p>
-<pre><code>curl -s https://basilwhite.com/provenance/validators/0xb581b6a7f367b2379228ef688f91e3a88a63064cf1a93242d3996973e1f36312/score</code></pre>
+<pre><code>curl -s https://basilwhite.com/provenance/validators/0x36a507a53fa25b7d1e9783a4fae214ef7b8c424e397edb6c2cf6173a67677332/score</code></pre>
 <h3 id="ep-GET-validators-pubkey-events"><span class="method method-get">GET</span> <code>/validators/{pubkey}/events</code></h3>
 <p>Raw event history for a validator, for the offline verifier CLI (F6.2)</p>
-<pre><code>curl -s https://basilwhite.com/provenance/validators/0xb581b6a7f367b2379228ef688f91e3a88a63064cf1a93242d3996973e1f36312/events</code></pre>
+<pre><code>curl -s https://basilwhite.com/provenance/validators/0x36a507a53fa25b7d1e9783a4fae214ef7b8c424e397edb6c2cf6173a67677332/events</code></pre>
 
 </section>
 
@@ -190,15 +193,25 @@ export const LANDING_PAGE_HTML = `<!DOCTYPE html>
 
 <section>
   <h2>Trust justification</h2>
-  <p>Immutability (append-only, Merkle-chained, no update/delete path), accountability
-  (a public key is a validator's lifelong identity), and transparency (offline
-  verification, no trust required) &mdash; see the
+  <p>Immutability (append-only, Merkle-chained, no update/delete path at the
+  application layer), accountability (a public key is a validator's lifelong
+  identity), and offline verification of signatures and score arithmetic &mdash;
+  see the
   <a href="https://github.com/basilwhite/provenance#trust-justification">full trust justification</a>
   for the complete argument with worked examples.</p>
-  <p><b>Known gap, stated plainly:</b> a stake-and-slash mechanism exists on every claim,
+  <p><b>Known gap, stated plainly (stake):</b> a stake-and-slash mechanism exists on every claim,
   but current stake is a free, auto-provisioned simulation with no real cost to acquire
-  or replace &mdash; it does not yet deter a validator from re-keying after a slash. See
+  or replace &mdash; it does not yet deter a validator from re-keying after a slash.</p>
+  <p><b>Known gap, stated plainly (anchoring):</b> Merkle roots live only in this
+  server's own database. The offline CLI checks event signatures and recomputes
+  the score from whatever event list it's given, by default comparing against
+  that same list's self-reported score &mdash; it proves the numbers are
+  consistent with each other, not that no event was ever omitted from what you
+  were sent. Nothing outside this operator currently holds an independent copy
+  of a root at a point in time. See
   <a href="https://github.com/basilwhite/provenance/blob/main/docs/CURRENT_STATE.md">docs/CURRENT_STATE.md</a>
+  and
+  <a href="https://github.com/basilwhite/provenance/blob/main/docs/CLAIMS_AUDIT.md">docs/CLAIMS_AUDIT.md</a>
   for the full accounting of what's solved and what isn't.</p>
 </section>
 

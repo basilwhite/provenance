@@ -64,13 +64,18 @@ PROVENANCE_TEST_DB_NAME=provenance_test PROVENANCE_TEST_DB_USER=root \
 normal `PROVENANCE_DB_*` config at it, so the same `Db\Connection` code path
 used in production runs in tests.
 
-125 tests, 93.47% line coverage (`php vendor/bin/phpunit --coverage-text`,
-requires Xdebug or PCOV — neither ships with the stock PHP.net Windows
-build; see the project's main session notes for how a coverage driver was
-obtained if you need to reproduce this locally). Covers the same ground as
-the TS Vitest suite: Wilson score against the 6 hand-computed reference
-values, signature round-trip + malleability rejection, self-audit/duplicate-
-audit rejection, staking/slashing at 0/1/2 overturns and at the 7-day window
+130 tests, 468 assertions, 93.37% line coverage (both re-measured
+2026-08-18; see [../docs/CLAIMS_AUDIT.md](../docs/CLAIMS_AUDIT.md) for how
+and why the previous 125/93.47% figures were stale) via
+`php vendor/bin/phpunit --coverage-text` (requires Xdebug or PCOV —
+neither ships with the stock PHP.net Windows build; see the project's main
+session notes for how a coverage driver was obtained if you need to
+reproduce this locally). Covers the same ground as the TS Vitest suite:
+Wilson score against the 6 hand-computed reference values, signature
+round-trip + malleability rejection, same-pubkey self-audit rejection
+(note: this check is defeated by a second keypair — see
+[../docs/CLAIMS_AUDIT.md](../docs/CLAIMS_AUDIT.md)) and duplicate-audit
+rejection, staking/slashing at 0/1/2 overturns and at the 7-day window
 boundary, Merkle/chain tamper detection, and — going beyond the TS suite,
 because PHP's request-per-process model needed it — real concurrent-request
 tests (`tests/Fuzz/ConcurrencyTest.php`, via `curl_multi` against a live

@@ -2,15 +2,30 @@
 
 Provenance lets an AI validator (a model, an eval harness, a human reviewer —
 anyone submitting claims about AI system behavior) build a **public,
-tamper-evident, economically-backed reputation** instead of a self-reported
-one. Every claim, every audit, and every stake slash is an append-only
-ledger event chained by Merkle roots. Anyone can independently recompute a
-validator's score from raw events without trusting this server — that's the
-whole point.
+tamper-evident reputation** instead of a self-reported one. Every claim,
+every audit, and every stake slash is an append-only ledger event chained
+by Merkle roots. Anyone can independently recompute a validator's score
+from a downloaded mirror of that validator's raw events — without running
+this server's code, and without trusting a dashboard's rendering of the
+numbers.
 
-> **Don't Trust, Verify.** The [offline CLI](#offline-verifier-cli-f62) recomputes
-> everything this API reports from raw signed events. If the numbers don't
-> match, the server is lying (or compromised) — you'll know.
+That recomputation proves the numbers are *arithmetically consistent* with
+the events in the mirror, and that every event's signature is genuine. It
+does not yet prove the mirror is *complete* — nothing today stops this
+server from handing two different requesters two different (both
+internally consistent) event lists for the same validator. See
+[docs/CLAIMS_AUDIT.md](docs/CLAIMS_AUDIT.md) for exactly what is and isn't
+covered, claim by claim.
+
+> **Don't Trust, Verify — for what it currently covers.** The
+> [offline CLI](#offline-verifier-cli-f62) validates every event's Ed25519
+> signature and recomputes the Wilson score from raw signed events,
+> catching a server that reports a score inconsistent with its own event
+> history. It does not currently catch a server that quietly omits
+> unfavorable events before handing you the mirror — see
+> [ATTACK_REPORT.md](ATTACK_REPORT.md#4-edge-cases) ("A mirror that tampers
+> `audit_verdict` **and** its own `reported_score` consistently would pass
+> the CLI's checks").
 
 ## Contents
 
@@ -23,6 +38,7 @@ whole point.
 - [Offline verifier CLI](#offline-verifier-cli-f62)
 - [Testing](#testing)
 - [Known limitations](#known-limitations)
+- [License](#license)
 
 ## PHP vs. TypeScript: which one runs where
 
@@ -47,15 +63,16 @@ peers — one is the spec, one is the production deployment:
   account — short version: `src/domain/claimHash.ts`'s delimiter is
   actually a NUL byte, not the space its own comment claims, and the PHP
   port matches that real behavior rather than the misleading comment).
-  125 PHPUnit tests, 93.47% line coverage, covering the same ground as the
-  TS suite plus real concurrent-request tests that the TS server's
-  single-threaded execution model doesn't need but PHP's
+  130 PHPUnit tests, 93.37% line coverage (both re-measured 2026-08-18;
+  see [docs/CLAIMS_AUDIT.md](docs/CLAIMS_AUDIT.md)), covering the same
+  ground as the TS suite plus real concurrent-request tests that the TS
+  server's single-threaded execution model doesn't need but PHP's
   request-per-process model does.
 
 If you're changing how Provenance *works* — the scoring formula, the
 slashing rules, anything spec-level — change it in `src/` first, since
-that's the thing 249 combined tests are protecting. If you're deploying or
-debugging the live site, you're in `php-api/`.
+that's the thing 254 combined tests (124 TS + 130 PHP) are protecting. If
+you're deploying or debugging the live site, you're in `php-api/`.
 
 ## Quick start
 
@@ -117,7 +134,17 @@ every `root` computed after it. `src/ledger/replay.ts` recomputes the whole
 chain from a fixed genesis constant and compares it to what's stored;
 `test/ledger/store.test.ts` proves this catches both field tampering and
 event deletion. **There is no update or delete path for ledger events in
-this codebase** — `LedgerStore` only exposes `appendEvent`. An overturned
+this codebase** — `LedgerStore` only exposes `appendEvent`. This is an
+application-code guarantee, not (yet, on every deployment) a storage-layer
+one: the PHP port tries to additionally enforce it with a MySQL trigger
+that rejects any `UPDATE`/`DELETE` outright, but the trigger failed to
+install on the actual production database (insufficient privilege — see
+[docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)), so on
+`basilwhite.com/provenance` today, whoever holds the database credentials
+(the operator) could `UPDATE` a row directly and nothing at the storage
+layer would refuse it — only `src/ledger/replay.ts`, run after the fact,
+would catch the resulting hash mismatch, and only if someone runs it.
+An overturned
 claim's original submission event is never rewritten; the overturn is a
 *new* audit event layered on top, permanently visible in the validator's
 history (see [`getEventsForIdentity`](src/ledger/store.ts) — it returns
@@ -137,34 +164,52 @@ retired key's full track record carries forward to the current one (see
 `test/api/keys.test.ts`, "treats history across old and new keys as
 continuous").
 
-### Economic disincentives
+### Stake and slashing — mechanism implemented, economic disincentive **not** implemented
 
-Submitting a claim requires locked stake (`MIN_STAKE_REQUIRED`, auto
--provisioned at `DEFAULT_INITIAL_STAKE` on a validator's first submission —
-this is a simulation, not custody of real value). Two independent overturns
-within 7 days of the original submission burn 50% of the submitter's
-currently locked stake (`src/protocol/slashing.ts`), recorded permanently
-on the triggering audit event's `stake_slashed` field. Slashing is
-one-shot per claim (idempotent — see `shouldSlashForClaim`) but the
-*audit trail* of the overturn is not: it's on the ledger forever, dragging
-the validator's Wilson score down via `n` even after the stake is gone.
-Sybil-ing many validator identities to escape a bad reputation doesn't
-help either: each identity starts at the neutral **0.5** prior (not a
-free pass, not a penalty), and needs its own fresh stake and its own
-`n >= 5` audited track record before it can out-score the flat prior —
-manufacturing that legitimately costs at least as much as behaving honestly
-would have. See [ATTACK_REPORT.md](ATTACK_REPORT.md) for collusion-ring
-economics in detail.
+Submitting a claim requires locked stake (`MIN_STAKE_REQUIRED`), but that
+stake is auto-provisioned at `DEFAULT_INITIAL_STAKE` on a validator's
+*first submission*, at zero cost, with no funding step at all
+(`src/protocol/stakes.ts` — this is a simulation, not custody of real
+value). Two independent overturns within 7 days of the original submission
+burn 50% of the submitter's currently locked stake
+(`src/protocol/slashing.ts`), recorded permanently on the triggering audit
+event's `stake_slashed` field. Slashing is one-shot per claim (idempotent —
+see `shouldSlashForClaim`) but the *audit trail* of the overturn is not:
+it's on the ledger forever, dragging the validator's Wilson score down via
+`n` even after the stake is gone.
 
-### Transparency
+**What this does not do: impose real cost.** A slashed validator mints a
+new keypair and receives a fresh, free `DEFAULT_INITIAL_STAKE` grant
+immediately — slashing burns stake that cost nothing to begin with. The
+only remaining friction is *time*: a fresh identity starts at the neutral
+**0.5** prior and needs its own `n >= 5` audited track record before it
+out-scores the flat prior. That delay is real, but it is not an economic
+cost, and it does not "cost at least as much as behaving honestly would
+have" — behaving honestly costs the same nothing in stake. See
+[docs/CLAIMS_AUDIT.md](docs/CLAIMS_AUDIT.md) and
+[ATTACK_REPORT.md](ATTACK_REPORT.md) for the full accounting, including
+why this currently gives Sybil identities zero real deterrent.
+
+### Transparency — proves consistency, not completeness
 
 `GET /verify/{claim_hash}` returns a claim's full context — the
 submitter's complete event history, current score, and a Merkle proof
-tying that specific claim into the chain — with nothing server-side
-required to trust it. The [offline CLI](#offline-verifier-cli-f62)
-re-derives a validator's score from raw signed events using the exact same
+tying that specific claim into the chain. That proof is checked against a
+`root` this same server also computed and published: nothing external
+holds a copy of that root independently of the operator today (see
+[docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)), so a match proves the
+claim sits in *the tree this server currently says it built* — it does not
+prove the server built the same tree for every requester, or didn't
+rebuild it since. The [offline CLI](#offline-verifier-cli-f62) re-derives
+a validator's score from raw signed events using the exact same
 signature-verification and Wilson-score code the server runs, and prints a
-flat **PASS** or **FAIL**. Run it against a JSON file you downloaded
+flat **PASS** or **FAIL** — but by default it compares against
+`reported_score` from the same mirror it just fetched, so a server that
+consistently omits unfavorable events (and reports a score matching the
+edited mirror) still earns a PASS. Pass `--expected-score` from a
+reference you recorded independently, out-of-band, to actually catch that
+— see [ATTACK_REPORT.md](ATTACK_REPORT.md#4-edge-cases) for the exact gap
+this closes and doesn't close. Run it against a JSON file you downloaded
 yesterday and it works with zero network access — "offline" is not a
 slogan here, it's `--ledger-file`.
 
@@ -298,4 +343,16 @@ signatures/score but doesn't replay the *entire* global chain from genesis
 into the per-pubkey CLI), and the append-only log here uses one event per
 block for API simplicity, trading Merkle-proof succinctness (proof size is
 O(events since the claim) rather than O(log n)) for a much simpler append
-API.
+API. For a fuller, line-referenced accounting of what's true, partially
+true, or false in this project's own public claims, see
+[docs/CLAIMS_AUDIT.md](docs/CLAIMS_AUDIT.md).
+
+## License
+
+Implementation code (`src/`, `php-api/`, `cli/`, `test/`) is **MIT**.
+`spec/` — the protocol specification and test vectors, once written — is
+**CC0-1.0**: zero friction for a stranger writing a second implementation
+is the point of that split. Neither license achieves "owned by no one" —
+a license governs copying, not who operates the only running instance.
+That's a separate, unsolved problem, tracked as design decisions D-9
+(external anchoring) and D-10 (replication) once Phase 1 opens.

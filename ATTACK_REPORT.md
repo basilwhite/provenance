@@ -9,20 +9,28 @@ Each section names the concrete module/endpoint responsible.
 their claims, inflating their score risk-free.
 
 **Mitigation:**
-- Self-audit is rejected outright (`src/api/routes/audit.ts`: `original.validator_pubkey === body.validator_pubkey` → `403 self_audit_forbidden`).
+- Same-pubkey reuse is rejected (`src/api/routes/audit.ts`: `original.validator_pubkey === body.validator_pubkey` → `403 self_audit_forbidden`). **This is not a self-audit defense against a determined actor:** a second keypair defeats it completely, and — see below — a second keypair costs nothing to acquire. Calling this "self-audit prevention" without that caveat overstates what it does.
 - A validator can audit a given claim at most once (`duplicate_audit`, `409`) — a colluding pair can't pad `n` by resubmitting the same "confirm."
-- Each new identity in a ring starts at the neutral **0.5** prior and needs `n >= 5` audited claims (`src/scoring/wilson.ts`) before it moves off that prior — a ring pays for real stake + audit volume per Sybil member, not just claim volume.
+- Each new identity in a ring starts at the neutral **0.5** prior and needs `n >= 5` audited claims (`src/scoring/wilson.ts`) before it moves off that prior — a ring pays in **time and audit volume** per Sybil member, not in stake: stake is free (see below), so this is a delay, not a cost.
 - **Residual risk:** nothing here stops two *independent, adequately staked* identities from cross-confirming each other indefinitely — the Wilson score can't distinguish a genuine track record from a collusive one. A production system would need auditor-diversity or stake-weighted audit scoring on top of this.
 
-**Economic backstop:** `src/protocol/slashing.ts` — two independent
+**Stake slashing — not currently an economic backstop:** `src/protocol/slashing.ts` — two independent
 overturns within `SLASH_WINDOW_MS` (7 days) of the original submission burn
 50% of the submitter's *currently locked* stake (`StakeStore.slash`,
 `src/protocol/stakes.ts`), applied exactly once per claim (idempotent via
 checking prior audits' `stake_slashed`; verified under concurrent load in
 `test/fuzz/race.test.ts`). Slashing compounds and is floor-guarded to
 always reach exactly zero (`Math.max(1, …)` in `StakeStore.slash`), so a
-validator submitting bad claims is fully depleted within a handful of
-overturns and then fails `MIN_STAKE_REQUIRED` on `/submit`.
+validator submitting bad claims on *that one key* is fully depleted within
+a handful of overturns and then fails `MIN_STAKE_REQUIRED` on `/submit`.
+
+**Why this isn't a backstop today:** `DEFAULT_INITIAL_STAKE` is
+auto-granted free on first submission, with no funding step
+(`src/protocol/stakes.ts`). Depleting a key's stake to zero costs the
+attacker nothing to reverse — mint a new keypair, get a fresh grant,
+resume. The slash removes free stake; it doesn't touch anything the
+attacker paid for, because nothing was paid. Until stake costs something
+real to acquire, this mechanism deters no one who's willing to re-key.
 
 ## 2. Score farming via low-effort claims
 

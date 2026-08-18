@@ -288,19 +288,22 @@ $html = <<<HTML
 <header>
   <h1>Provenance</h1>
   <p class="tagline">A ledger-backed AI validator reputation system.</p>
-  <p class="pitch"><b>Don't Trust, Verify.</b> Every claim, audit, and stake slash is a signed,
-  append-only ledger event chained by Merkle roots. Nothing here asks you to trust a
-  dashboard — pull the raw events and recompute the score yourself.</p>
+  <p class="pitch"><b>Don't Trust, Verify &mdash; for what's covered today.</b> Every claim,
+  audit, and stake slash is a signed, append-only ledger event chained by Merkle roots.
+  The offline CLI recomputes scores from those raw signed events instead of taking a
+  dashboard's word for it &mdash; that proves the numbers are internally consistent and
+  every signature is genuine, not that nothing was ever omitted. See the trust
+  justification below for the exact boundary.</p>
 </header>
 
 <section>
   <h2>How it works</h2>
   <div class="flow">
     <div class="flow-step"><b>1. Submit</b>A validator signs and submits a claim about AI system behavior.</div>
-    <div class="flow-step"><b>2. Audit</b>Other validators confirm or overturn it &mdash; self-audits are rejected.</div>
+    <div class="flow-step"><b>2. Audit</b>Other validators confirm or overturn it &mdash; same-key self-audits are rejected (a second keypair is not stopped).</div>
     <div class="flow-step"><b>3. Finalize</b>Once a claim has &ge;2 audits, the submitter's score recomputes.</div>
     <div class="flow-step"><b>4. Score</b>A Wilson-lower-bound estimate over all finalized claims &mdash; not a raw ratio.</div>
-    <div class="flow-step"><b>5. Verify</b>Anyone recomputes the score offline from raw signed events. No trust required.</div>
+    <div class="flow-step"><b>5. Verify</b>Anyone recomputes the score offline from raw signed events &mdash; proving consistency, not that history wasn't rewritten.</div>
   </div>
 </section>
 
@@ -335,15 +338,25 @@ $html = <<<HTML
 
 <section>
   <h2>Trust justification</h2>
-  <p>Immutability (append-only, Merkle-chained, no update/delete path), accountability
-  (a public key is a validator's lifelong identity), and transparency (offline
-  verification, no trust required) &mdash; see the
+  <p>Immutability (append-only, Merkle-chained, no update/delete path at the
+  application layer), accountability (a public key is a validator's lifelong
+  identity), and offline verification of signatures and score arithmetic &mdash;
+  see the
   <a href="https://github.com/basilwhite/provenance#trust-justification">full trust justification</a>
   for the complete argument with worked examples.</p>
-  <p><b>Known gap, stated plainly:</b> a stake-and-slash mechanism exists on every claim,
+  <p><b>Known gap, stated plainly (stake):</b> a stake-and-slash mechanism exists on every claim,
   but current stake is a free, auto-provisioned simulation with no real cost to acquire
-  or replace &mdash; it does not yet deter a validator from re-keying after a slash. See
+  or replace &mdash; it does not yet deter a validator from re-keying after a slash.</p>
+  <p><b>Known gap, stated plainly (anchoring):</b> Merkle roots live only in this
+  server's own database. The offline CLI checks event signatures and recomputes
+  the score from whatever event list it's given, by default comparing against
+  that same list's self-reported score &mdash; it proves the numbers are
+  consistent with each other, not that no event was ever omitted from what you
+  were sent. Nothing outside this operator currently holds an independent copy
+  of a root at a point in time. See
   <a href="https://github.com/basilwhite/provenance/blob/main/docs/CURRENT_STATE.md">docs/CURRENT_STATE.md</a>
+  and
+  <a href="https://github.com/basilwhite/provenance/blob/main/docs/CLAIMS_AUDIT.md">docs/CLAIMS_AUDIT.md</a>
   for the full accounting of what's solved and what isn't.</p>
 </section>
 
